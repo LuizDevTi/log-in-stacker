@@ -9,7 +9,7 @@ export const useTetris = () => {
   const [level, setLevel] = useState(1);
   const [linesClearedTotal, setLinesClearedTotal] = useState(0);
   const [gameOver, setGameOver] = useState(false);
-  const gameLoopRef = useRef<number>();
+  const gameLoopRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
 
   const isValidMove = (pos: Point, shape: number[][], currentGrid: string[][]) => {
@@ -18,54 +18,33 @@ export const useTetris = () => {
         if (shape[y][x]) {
           const newX = pos.x + x;
           const newY = pos.y + y;
-          // Verifica limites laterais e fundo
-          if (newX < 0 || newX >= COLS || newY >= ROWS) {
-            return false;
-          }
-          // Verifica colisão com blocos já existentes
-          if (newY >= 0 && currentGrid[newY][newX]) {
-            return false;
-          }
+          if (newX < 0 || newX >= COLS || newY >= ROWS) return false;
+          if (newY >= 0 && currentGrid[newY][newX]) return false;
         }
       }
     }
     return true;
   };
 
-  const spawnPiece = useCallback(() => {
-    const randomIdx = Math.floor(Math.random() * SHAPES.length);
-    const piece = SHAPES[randomIdx];
-    // Tenta spawnar um pouco acima ou no topo
-    const startY = 0;
-    const newPos = { x: Math.floor(COLS / 2) - Math.floor(piece.shape[0].length / 2), y: startY };
-    
-    if (!isValidMove(newPos, piece.shape, grid)) {
-      setGameOver(true);
-      return null;
-    }
-    return { pos: newPos, shape: piece.shape, color: piece.color };
-  }, [grid]);
-
-  const lockPiece = useCallback((currentPiece: { pos: Point; shape: number[][]; color: string }, currentGrid: string[][]) => {
+  const lockPiece = useCallback((piece: { pos: Point; shape: number[][]; color: string }, currentGrid: string[][]) => {
     const newGrid = currentGrid.map(row => [...row]);
-    let hitTop = false;
+    let outOfBounds = false;
 
-    currentPiece.shape.forEach((row, y) => {
+    piece.shape.forEach((row, y) => {
       row.forEach((value, x) => {
         if (value) {
-          const gridY = currentPiece.pos.y + y;
-          const gridX = currentPiece.pos.x + x;
-          if (gridY >= 0) {
-            newGrid[gridY][gridX] = currentPiece.color;
+          const gridY = piece.pos.y + y;
+          const gridX = piece.pos.x + x;
+          if (gridY < 0) {
+            outOfBounds = true;
           } else {
-            // Se travou acima do topo visível
-            hitTop = true;
+            newGrid[gridY][gridX] = piece.color;
           }
         }
       });
     });
 
-    if (hitTop) {
+    if (outOfBounds) {
       setGameOver(true);
       return;
     }
@@ -80,7 +59,7 @@ export const useTetris = () => {
     if (linesInThisTurn > 0) {
       const linePoints = [0, 100, 300, 500, 800];
       const gain = linePoints[linesInThisTurn] * level;
-      setScore(prev => prev + gain);
+      setScore(s => s + gain);
       
       setLinesClearedTotal(prev => {
         const newTotal = prev + linesInThisTurn;
@@ -95,15 +74,29 @@ export const useTetris = () => {
     }
 
     setGrid(filteredGrid);
-    setActivePiece(null); // Força spawn de nova peça no próximo tick/effect
+    setActivePiece(null);
   }, [level]);
+
+  const spawnPiece = useCallback(() => {
+    const randomIdx = Math.floor(Math.random() * SHAPES.length);
+    const piece = SHAPES[randomIdx];
+    const newPos = { x: Math.floor(COLS / 2) - Math.floor(piece.shape[0].length / 2), y: -1 };
+    
+    // Se o spawn básico já colidir, game over imediato
+    if (!isValidMove(newPos, piece.shape, grid)) {
+      setGameOver(true);
+      return null;
+    }
+    return { pos: newPos, shape: piece.shape, color: piece.color };
+  }, [grid]);
 
   const moveDown = useCallback((isManual = false) => {
     if (!activePiece || gameOver) return;
     const nextPos = { ...activePiece.pos, y: activePiece.pos.y + 1 };
+    
     if (isValidMove(nextPos, activePiece.shape, grid)) {
       setActivePiece(prev => prev ? { ...prev, pos: nextPos } : null);
-      if (isManual) setScore(prev => prev + 1);
+      if (isManual) setScore(s => s + 1);
     } else {
       lockPiece(activePiece, grid);
     }
@@ -120,7 +113,7 @@ export const useTetris = () => {
     }
     
     const finalPiece = { ...activePiece, pos: { ...activePiece.pos, y: currentY } };
-    setScore(prev => prev + (dropDist * 2));
+    setScore(s => s + (dropDist * 2));
     lockPiece(finalPiece, grid);
   }, [activePiece, grid, gameOver, lockPiece]);
 
@@ -143,10 +136,10 @@ export const useTetris = () => {
   const handleRotate = useCallback(() => {
     if (!activePiece || gameOver) return;
     const rotated = activePiece.shape[0].map((_, i) => activePiece.shape.map(row => row[i]).reverse());
+    
     if (isValidMove(activePiece.pos, rotated, grid)) {
       setActivePiece(prev => prev ? { ...prev, shape: rotated } : null);
     } else {
-      // Tenta um "wall kick" simples para facilitar rotação perto de bordas
       const kicks = [{x: -1, y: 0}, {x: 1, y: 0}, {x: 0, y: -1}];
       for (const kick of kicks) {
         const kickedPos = { x: activePiece.pos.x + kick.x, y: activePiece.pos.y + kick.y };
@@ -168,8 +161,7 @@ export const useTetris = () => {
   const update = useCallback((time: number) => {
     if (gameOver) return;
     const deltaTime = time - lastTimeRef.current;
-    // Aceleração mais agressiva a cada nível
-    const dropInterval = Math.max(70, 850 * Math.pow(0.75, level - 1));
+    const dropInterval = Math.max(70, 850 * Math.pow(0.72, level - 1));
 
     if (deltaTime > dropInterval) {
       moveDown();
@@ -180,7 +172,7 @@ export const useTetris = () => {
 
   useEffect(() => {
     gameLoopRef.current = requestAnimationFrame(update);
-    return () => { if (gameLoopRef.current) cancelAnimationFrame(gameLoopRef.current); };
+    return () => cancelAnimationFrame(gameLoopRef.current);
   }, [update]);
 
   const reset = () => {
