@@ -1,30 +1,308 @@
 
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Log-In Container Stack</title>
+    <!-- Bibliotecas Externas -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; }
+        body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; background-color: #0f172a; overflow: hidden; }
         #root { min-height: 100vh; display: flex; flex-direction: column; }
+        @keyframes container-drop { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .drop-anim { animation: container-drop 0.1s ease-out; }
     </style>
 <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@19.0.0",
-    "react-dom": "https://esm.sh/react-dom@19.0.0",
-    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/"
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/"
   }
 }
 </script>
 </head>
-<body class="bg-slate-900 text-white overflow-hidden">
+<body>
     <div id="root"></div>
-    <script type="module" src="./index.tsx"></script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback, useRef, useMemo } = React;
+
+        // --- CONSTANTES ---
+        const COLS = 10;
+        const ROWS = 20;
+        const BLOCK_SIZE = 24;
+        const SHIP_NAMES = [
+            "Log-In Endurance", "Log-In Experience", "Log-In Evolution", 
+            "Log-In Pantanal", "Log-In Jacarandá", "Log-In Resiliente", 
+            "Log-In Jatobá", "Log-In Polaris"
+        ];
+        const SHAPES = [
+            { shape: [[1, 1, 1, 1]], color: '#00529B' }, // I
+            { shape: [[1, 1], [1, 1]], color: '#F58220' }, // O
+            { shape: [[0, 1, 0], [1, 1, 1]], color: '#00A4E4' }, // T
+            { shape: [[1, 0, 0], [1, 1, 1]], color: '#4D4D4D' }, // L
+            { shape: [[0, 0, 1], [1, 1, 1]], color: '#00529B' }, // J
+            { shape: [[0, 1, 1], [1, 1, 0]], color: '#F58220' }, // S
+            { shape: [[1, 1, 0], [0, 1, 1]], color: '#00A4E4' }  // Z
+        ];
+
+        // --- COMPONENTES ---
+        const ContainerBlock = ({ color, size, isGhost }) => (
+            <div
+                style={{
+                    width: `${size}px`,
+                    height: `${size}px`,
+                    backgroundColor: color,
+                    opacity: isGhost ? 0.3 : 1,
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: '2px',
+                    position: 'relative',
+                    boxShadow: isGhost ? 'none' : 'inset 0 0 8px rgba(0,0,0,0.3)',
+                }}
+                className="flex items-center justify-center overflow-hidden"
+            >
+                <div className="absolute inset-0 flex flex-col justify-between p-1 opacity-20">
+                    {[1, 2, 3, 4].map(i => <div key={i} className="h-[1px] w-full bg-white"></div>)}
+                </div>
+                {!isGhost && size > 15 && (
+                    <span className="text-[6px] font-bold text-white tracking-widest pointer-events-none select-none">
+                        LOG-IN
+                    </span>
+                )}
+            </div>
+        );
+
+        // --- APP PRINCIPAL ---
+        const App = () => {
+            const [grid, setGrid] = useState(Array.from({ length: ROWS }, () => Array(COLS).fill('')));
+            const [activePiece, setActivePiece] = useState(null);
+            const [score, setScore] = useState(0);
+            const [level, setLevel] = useState(1);
+            const [linesTotal, setLinesTotal] = useState(0);
+            const [gameOver, setGameOver] = useState(false);
+            const lastTimeRef = useRef(0);
+            const requestRef = useRef();
+
+            const isValid = useCallback((pos, shape, currentGrid) => {
+                for (let y = 0; y < shape.length; y++) {
+                    for (let x = 0; x < shape[y].length; x++) {
+                        if (shape[y][x]) {
+                            const nX = pos.x + x;
+                            const nY = pos.y + y;
+                            if (nX < 0 || nX >= COLS || nY >= ROWS) return false;
+                            if (nY >= 0 && currentGrid[nY][nX]) return false;
+                        }
+                    }
+                }
+                return true;
+            }, []);
+
+            const spawn = useCallback(() => {
+                const p = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+                const pos = { x: Math.floor(COLS / 2) - Math.floor(p.shape[0].length / 2), y: -1 };
+                if (!isValid(pos, p.shape, grid)) {
+                    setGameOver(true);
+                    return null;
+                }
+                return { pos, shape: p.shape, color: p.color };
+            }, [grid, isValid]);
+
+            const lock = useCallback((piece, currentGrid) => {
+                const newGrid = currentGrid.map(row => [...row]);
+                let topHit = false;
+                piece.shape.forEach((row, y) => {
+                    row.forEach((v, x) => {
+                        if (v) {
+                            const gY = piece.pos.y + y;
+                            const gX = piece.pos.x + x;
+                            if (gY < 0) topHit = true;
+                            else newGrid[gY][gX] = piece.color;
+                        }
+                    });
+                });
+
+                if (topHit) { setGameOver(true); return; }
+
+                let cleared = 0;
+                const filtered = newGrid.filter(row => {
+                    const full = row.every(c => c !== '');
+                    if (full) cleared++;
+                    return !full;
+                });
+
+                if (cleared > 0) {
+                    const pts = [0, 100, 300, 500, 800];
+                    setScore(s => s + (pts[cleared] * level));
+                    setLinesTotal(prev => {
+                        const total = prev + cleared;
+                        const nLvl = Math.min(SHIP_NAMES.length, Math.floor(total / 10) + 1);
+                        if (nLvl > level) setLevel(nLvl);
+                        return total;
+                    });
+                }
+
+                while (filtered.length < ROWS) filtered.unshift(Array(COLS).fill(''));
+                setGrid(filtered);
+                setActivePiece(null);
+            }, [level]);
+
+            const moveDown = useCallback((manual = false) => {
+                if (!activePiece || gameOver) return;
+                const nPos = { ...activePiece.pos, y: activePiece.pos.y + 1 };
+                if (isValid(nPos, activePiece.shape, grid)) {
+                    setActivePiece(p => ({ ...p, pos: nPos }));
+                    if (manual) setScore(s => s + 1);
+                } else {
+                    lock(activePiece, grid);
+                }
+            }, [activePiece, grid, gameOver, isValid, lock]);
+
+            const hardDrop = useCallback(() => {
+                if (!activePiece || gameOver) return;
+                let y = activePiece.pos.y;
+                while (isValid({ ...activePiece.pos, y: y + 1 }, activePiece.shape, grid)) y++;
+                lock({ ...activePiece, pos: { ...activePiece.pos, y } }, grid);
+            }, [activePiece, grid, gameOver, isValid, lock]);
+
+            const rotate = useCallback(() => {
+                if (!activePiece || gameOver) return;
+                const r = activePiece.shape[0].map((_, i) => activePiece.shape.map(row => row[i]).reverse());
+                if (isValid(activePiece.pos, r, grid)) setActivePiece(p => ({ ...p, shape: r }));
+            }, [activePiece, grid, gameOver, isValid]);
+
+            const moveSide = useCallback((dir) => {
+                if (!activePiece || gameOver) return;
+                const nPos = { ...activePiece.pos, x: activePiece.pos.x + dir };
+                if (isValid(nPos, activePiece.shape, grid)) setActivePiece(p => ({ ...p, pos: nPos }));
+            }, [activePiece, grid, gameOver, isValid]);
+
+            useEffect(() => {
+                if (!activePiece && !gameOver) {
+                    const next = spawn();
+                    if (next) setActivePiece(next);
+                }
+            }, [activePiece, gameOver, spawn]);
+
+            const update = (time) => {
+                const dt = time - lastTimeRef.current;
+                const interval = Math.max(80, 850 * Math.pow(0.72, level - 1));
+                if (dt > interval) {
+                    moveDown();
+                    lastTimeRef.current = time;
+                }
+                requestRef.current = requestAnimationFrame(update);
+            };
+
+            useEffect(() => {
+                requestRef.current = requestAnimationFrame(update);
+                return () => cancelAnimationFrame(requestRef.current);
+            }, [moveDown, level]);
+
+            const reset = () => {
+                setGrid(Array.from({ length: ROWS }, () => Array(COLS).fill('')));
+                setScore(0); setLevel(1); setLinesTotal(0); setGameOver(false); setActivePiece(null);
+            };
+
+            const ghostY = useMemo(() => {
+                if (!activePiece) return null;
+                let y = activePiece.pos.y;
+                while (isValid({ ...activePiece.pos, y: y + 1 }, activePiece.shape, grid)) y++;
+                return y;
+            }, [activePiece, grid, isValid]);
+
+            const blockSize = Math.min(24, Math.floor((window.innerHeight - 300) / ROWS));
+            const shipName = SHIP_NAMES[Math.min(level - 1, SHIP_NAMES.length - 1)];
+
+            return (
+                <div className="flex flex-col items-center justify-between min-h-screen p-2">
+                    <header className="bg-white px-4 py-1 rounded-full shadow-lg flex items-center scale-90 mb-2">
+                        <span className="text-[#00529B] font-extrabold text-lg">Log-In</span>
+                        <span className="mx-2 h-4 w-[1px] bg-slate-200"></span>
+                        <span className="text-[#F58220] font-bold text-[10px] uppercase tracking-widest">Porto Online</span>
+                    </header>
+
+                    <div className="relative">
+                        <div className="absolute -top-6 left-0 right-0 flex justify-center">
+                            <span className="bg-slate-800 text-[10px] text-[#F58220] px-3 py-1 rounded-t-lg font-bold border-t border-slate-600">
+                                {shipName}
+                            </span>
+                        </div>
+                        <div className="bg-slate-950 border-4 border-slate-700 rounded-b-xl shadow-2xl relative overflow-hidden" 
+                             style={{ width: COLS * blockSize + 8, height: ROWS * blockSize + 8 }}>
+                            {grid.map((row, y) => row.map((c, x) => c && (
+                                <div key={`${x}-${y}`} className="absolute" style={{ top: y * blockSize, left: x * blockSize }}>
+                                    <ContainerBlock color={c} size={blockSize} />
+                                </div>
+                            )))}
+                            {activePiece && ghostY !== null && activePiece.shape.map((row, y) => row.map((v, x) => v && (
+                                <div key={`g-${x}-${y}`} className="absolute" style={{ top: (ghostY + y) * blockSize, left: (activePiece.pos.x + x) * blockSize }}>
+                                    <ContainerBlock color={activePiece.color} size={blockSize} isGhost />
+                                </div>
+                            )))}
+                            {activePiece && activePiece.shape.map((row, y) => row.map((v, x) => v && (
+                                <div key={`a-${x}-${y}`} className="absolute" style={{ top: (activePiece.pos.y + y) * blockSize, left: (activePiece.pos.x + x) * blockSize }}>
+                                    <ContainerBlock color={activePiece.color} size={blockSize} />
+                                </div>
+                            )))}
+                            {gameOver && (
+                                <div className="absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center text-center p-4 z-50">
+                                    <h2 className="text-[#F58220] font-black text-xl italic mb-4">NAVIO LOTADO!</h2>
+                                    <div className="bg-slate-800 p-4 rounded-xl mb-6">
+                                        <div className="text-white text-2xl font-black">{score.toLocaleString()}</div>
+                                        <div className="text-[10px] text-slate-400 font-bold uppercase">Pontos de Carga</div>
+                                    </div>
+                                    <button onClick={reset} className="bg-[#00529B] text-white px-6 py-3 rounded-full font-bold uppercase text-xs tracking-widest shadow-lg">Reiniciar Navio</button>
+                                </div>
+                            )}
+                        </div>
+                        <div className="h-8 bg-slate-800 border-t-2 border-slate-600 rounded-b-3xl shadow-xl flex items-center justify-center">
+                             <span className="text-white/20 text-[8px] font-black tracking-[0.3em]">TERMINAL LOG-IN</span>
+                        </div>
+                    </div>
+
+                    <footer className="w-full max-w-xs pb-4">
+                        <div className="flex justify-between items-end mb-4 px-2">
+                            <div>
+                                <div className="text-[10px] text-slate-500 font-bold uppercase">Carga</div>
+                                <div className="text-2xl font-black text-white">{score}</div>
+                            </div>
+                            <div className="text-right">
+                                <div className="text-[10px] text-[#F58220] font-bold uppercase">Nível {level}</div>
+                                <div className="h-1.5 w-24 bg-slate-800 rounded-full mt-1 overflow-hidden">
+                                    <div className="h-full bg-[#F58220]" style={{ width: `${(linesTotal % 10) * 10}%` }}></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-5 gap-2">
+                            <button onPointerDown={() => moveSide(-1)} className="h-14 bg-slate-800 rounded-xl flex items-center justify-center border-b-4 border-slate-950 active:translate-y-1 active:border-b-0">
+                                <svg width="24" height="24" fill="white" viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>
+                            </button>
+                            <button onPointerDown={rotate} className="h-14 bg-slate-700 rounded-xl flex items-center justify-center border-b-4 border-slate-950 active:translate-y-1 active:border-b-0">
+                                <svg width="24" height="24" fill="white" viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm-1.46 10.1c.45.83.7 1.79.7 2.8v3l4-4-4-4v3c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L4.48 6.64C3.46 7.97 3 9.43 3 11c0 4.42 3.58 8 8 8z"/></svg>
+                            </button>
+                            <button onPointerDown={() => moveSide(1)} className="h-14 bg-slate-800 rounded-xl flex items-center justify-center border-b-4 border-slate-950 active:translate-y-1 active:border-b-0">
+                                <svg width="24" height="24" fill="white" viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg>
+                            </button>
+                            <button onPointerDown={() => moveDown(true)} className="h-14 bg-slate-800 rounded-xl flex items-center justify-center border-b-4 border-slate-950 active:translate-y-1 active:border-b-0">
+                                <svg width="24" height="24" fill="white" viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
+                            </button>
+                            <button onPointerDown={hardDrop} className="h-14 bg-[#F58220] rounded-xl flex items-center justify-center border-b-4 border-[#a3530c] active:translate-y-1 active:border-b-0">
+                                <svg width="24" height="24" fill="white" viewBox="0 0 24 24"><path d="M7 14l5 5 5-5M7 6l5 5 5-5"/></svg>
+                            </button>
+                        </div>
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
 </body>
 </html>
