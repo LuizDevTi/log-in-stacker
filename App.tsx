@@ -1,8 +1,8 @@
 
 import React, { useMemo, useEffect } from 'react';
-import { useTetris } from './hooks/useTetris';
-import { COLS, ROWS, BLOCK_SIZE, Point, SHIP_NAMES } from './constants';
-import ContainerBlock from './components/ContainerBlock';
+import { useTetris } from './hooks/useTetris.ts';
+import { COLS, ROWS, BLOCK_SIZE, Point, SHIP_NAMES } from './constants.ts';
+import ContainerBlock from './components/ContainerBlock.tsx';
 
 const App: React.FC = () => {
   const { 
@@ -73,7 +73,6 @@ const App: React.FC = () => {
 
       <main className="flex-1 flex flex-col items-center justify-center w-full overflow-hidden px-2">
         <div className="relative shrink-0">
-          {/* Nave Name Floating Tag */}
           <div className="absolute -top-6 left-0 right-0 flex justify-center">
              <div className="bg-slate-800/80 backdrop-blur px-3 py-0.5 rounded-t-lg border-x border-t border-slate-600 text-[9px] font-bold text-[#F58220] uppercase tracking-widest">
                 Embarcação: {currentShipName.replace('Log-In ', '')}
@@ -88,7 +87,6 @@ const App: React.FC = () => {
               borderColor: '#334155'
             }}
           >
-            {/* Grid background */}
             <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundSize: `${dynamicBlockSize}px ${dynamicBlockSize}px`, backgroundImage: 'linear-gradient(to right, #ffffff 1px, transparent 1px), linear-gradient(to bottom, #ffffff 1px, transparent 1px)' }} />
 
             {grid.map((row, y) => row.map((color, x) => (
@@ -141,7 +139,6 @@ const App: React.FC = () => {
             )}
           </div>
 
-          {/* Hull of the Ship */}
           <div 
             className="h-10 bg-slate-800 rounded-b-3xl relative -mt-1 shadow-2xl border-t-2 border-slate-600 flex flex-col items-center justify-center overflow-hidden"
             style={{ width: COLS * dynamicBlockSize + 16, marginLeft: '-4px' }}
